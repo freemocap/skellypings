@@ -9,4 +9,5 @@ dependencies = [
     "google-cloud-firestore>=2.19.0",
     "google-cloud-storage>=2.18.0",
     "pydantic>=2.9.0",
+    "python-dotenv>=1.0.0",
 ]
