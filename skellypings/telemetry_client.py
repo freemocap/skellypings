@@ -1,24 +1,8 @@
 """
-Telemetry client for the desktop app's Python backend.
+Telemetry client for desktop apps.
 
 Collects events in memory and flushes them to the telemetry server
 in batches on a background thread. Telemetry failures never crash the host app.
-
-Usage:
-    from telemetry_client import TelemetryClient
-
-    telemetry = TelemetryClient(
-        server_url="https://your-cloud-run-url.run.app",
-        secret="your-shared-secret",
-        app_version="1.2.3",
-    )
-
-    telemetry.track("feature_used", payload={"feature": "export_csv"})
-    telemetry.track("app_launched")
-    telemetry.track("error", payload={"error": "ValueError", "message": "bad input"})
-
-    # On app shutdown (also registered with atexit automatically):
-    telemetry.shutdown()
 """
 
 import atexit
@@ -36,20 +20,16 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Persistent anonymous user ID, stored alongside the app.
-# Change "your_app_name" to your actual app name.
-_USER_ID_FILE: Path = Path.home() / ".config" / "your_app_name" / "telemetry_uid"
 
-
-def _get_or_create_user_id() -> str:
+def _get_or_create_user_id(user_id_file: Path) -> str:
     """Read or generate a persistent anonymous user ID."""
-    _USER_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if _USER_ID_FILE.exists():
-        uid = _USER_ID_FILE.read_text().strip()
+    user_id_file.parent.mkdir(parents=True, exist_ok=True)
+    if user_id_file.exists():
+        uid = user_id_file.read_text().strip()
         if uid:
             return uid
     uid = uuid.uuid4().hex
-    _USER_ID_FILE.write_text(uid)
+    user_id_file.write_text(uid)
     return uid
 
 
@@ -75,6 +55,7 @@ class TelemetryClient:
         server_url: str,
         secret: str,
         app_version: str,
+        user_id_file: Path,
         flush_interval_seconds: float = 60.0,
         flush_batch_size: int = 50,
     ) -> None:
@@ -84,7 +65,7 @@ class TelemetryClient:
         self._flush_interval: float = flush_interval_seconds
         self._flush_batch_size: int = flush_batch_size
 
-        self._user_id: str = _get_or_create_user_id()
+        self._user_id: str = _get_or_create_user_id(user_id_file=user_id_file)
         self._os_platform: str = f"{platform.system()} {platform.release()}"
 
         self._buffer: list[dict[str, object]] = []
@@ -99,6 +80,10 @@ class TelemetryClient:
         self._flush_thread.start()
 
         atexit.register(self.shutdown)
+
+    @property
+    def user_id(self) -> str:
+        return self._user_id
 
     def track(self, event_type: str, payload: dict[str, object] | None = None) -> None:
         """Queue a telemetry event."""

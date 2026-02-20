@@ -1,6 +1,33 @@
-# Telemetry Service
+# Skellypings
 
-A lightweight telemetry system for collecting usage events from a desktop application. Events are sent to a small server running on Google Cloud, stored in a database (Firestore), and backed up daily to plain JSON files so you always have a portable copy of your data and can leave Google whenever you want.
+A lightweight telemetry system for collecting anonymous usage pings from desktop applications. Events are sent to a small server running on Google Cloud, stored in Firestore, and backed up daily to plain JSON files so you always have a portable copy of your data.
+
+## Repository Structure
+
+```
+├── pyproject.toml            # Client package (pip-installable, depends only on `requests`)
+├── skellypings/              # Client package source
+│   ├── __init__.py
+│   └── telemetry_client.py   # Batched async telemetry client
+├── server/                   # Cloud Run server (deployed to GCP)
+│   ├── main.py               # FastAPI telemetry ingestion service
+│   ├── pyproject.toml         # Server dependencies (fastapi, firestore, etc.)
+│   ├── Dockerfile
+│   └── uv.lock
+├── infra/                    # Terraform config (optional deployment method)
+│   ├── main.tf
+│   └── terraform.tfvars.example
+├── test_ping.py              # Quick script to test your deployment
+├── env.example               # Template for .env file
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
+This repo contains two separate Python projects:
+
+- **`skellypings/`** (root `pyproject.toml`) — the client library. This is what your desktop app depends on. It only requires `requests`.
+- **`server/`** (its own `pyproject.toml`) — the Cloud Run service. This gets deployed to GCP and has server-only dependencies (Firestore, Cloud Storage, etc.).
 
 ## Architecture
 
@@ -25,6 +52,44 @@ Cloud Scheduler
 | **Firestore** | A NoSQL document database. You write JSON objects to it, you read them back. No tables, no schema, no SQL. | Stores the telemetry events. Lowest-friction database in GCP. |
 | **Cloud Storage** | A place to store files (like S3 on AWS, or Dropbox but for code). | Holds the daily JSONL backup files — plain text, fully portable. |
 | **Cloud Scheduler** | A cron job service. You say "run this HTTP request at 3 AM every day" and it does. | Triggers the daily backup. |
+
+## Client Integration
+
+Install the client as a dependency from GitHub:
+
+```toml
+# In your app's pyproject.toml dependencies:
+"skellypings",
+
+# In [tool.uv.sources]:
+[tool.uv.sources]
+skellypings = { git = "https://github.com/freemocap/skellypings" }
+```
+
+Then use it in your Python backend:
+
+```python
+from pathlib import Path
+from skellypings import TelemetryClient
+
+telemetry = TelemetryClient(
+    server_url="https://your-cloud-run-url.run.app",
+    secret="your-64-char-secret",
+    app_version="1.0.0",
+    user_id_file=Path.home() / "my_app_data" / "telemetry_uid",
+)
+
+# Track events anywhere in your code
+telemetry.track("app_opened")
+telemetry.track("feature_used", payload={"feature": "export_csv", "row_count": 1500})
+telemetry.track("error", payload={"type": "ValueError", "message": "invalid input"})
+```
+
+The `user_id_file` is where the client stores a persistent anonymous user ID (a random hex string). On first run it generates one; on subsequent runs it reuses it. You decide where this file lives in your app's data directory.
+
+Events accumulate in memory and are flushed every 60 seconds or every 50 events (whichever comes first) on a background thread. Telemetry failures log a warning but never crash your app.
+
+On shutdown, `telemetry.shutdown()` flushes remaining events. This is also registered with `atexit` automatically, so it runs when your app exits.
 
 ## Billing: What Will This Cost?
 
@@ -72,22 +137,6 @@ This means:
 - If the secret is ever compromised, you just rotate it (change the env var on Cloud Run and in your app)
 
 The secret is stored as an environment variable on Cloud Run. It's not in your code or your repo.
-
-## Repository Structure
-
-```
-├── server/
-│   ├── main.py              # FastAPI telemetry service
-│   ├── pyproject.toml        # Python dependencies (managed by uv)
-│   └── Dockerfile            # Container build
-├── client/
-│   └── telemetry_client.py   # Drop-in client for your desktop app
-├── infra/
-│   ├── main.tf               # Terraform config for all GCP resources
-│   └── terraform.tfvars.example
-├── .gitignore
-└── README.md
-```
 
 ## Prerequisites
 
@@ -281,7 +330,7 @@ gcloud scheduler jobs create http telemetry-daily-backup \
 This emails you if spending approaches a threshold. Set it to $1 so you get warned long before any real charge:
 
 ```bash
-# This is easier to do in the web console — see Option B, step B7
+# This is easier to do in the web console — see Option B, step B9
 # But here's the gcloud way:
 gcloud billing budgets create \
   --billing-account=ACCOUNT_ID \
@@ -488,7 +537,7 @@ Edit `terraform.tfvars`:
 ```hcl
 project_id         = "your-gcp-project-id"
 region             = "us-east1"
-skellypings_secret   = "your-64-char-secret"
+skellypings_secret = "your-64-char-secret"
 backup_bucket_name = "your-project-id-telemetry-backups"
 ```
 
@@ -544,43 +593,6 @@ terraform destroy   # type "yes" to confirm — deletes everything
 ```
 
 ---
-
-## Client Integration
-
-Copy `client/telemetry_client.py` into your desktop app's codebase.
-
-Before using it, change `_USER_ID_FILE` near the top of the file — replace `your_app_name` with your actual app name:
-
-```python
-_USER_ID_FILE: Path = Path.home() / ".config" / "my_cool_app" / "telemetry_uid"
-```
-
-Then use it in your Python backend:
-
-```python
-from telemetry_client import TelemetryClient
-
-telemetry = TelemetryClient(
-    server_url="https://telemetry-xxxxx-ue.a.run.app",
-    secret="your-64-char-secret",
-    app_version="1.0.0",
-)
-
-# Track events anywhere in your code
-telemetry.track("app_launched")
-telemetry.track("feature_used", payload={"feature": "export_csv", "row_count": 1500})
-telemetry.track("error", payload={"type": "ValueError", "message": "invalid input"})
-```
-
-Events accumulate in memory and are flushed every 60 seconds or every 50 events (whichever comes first) on a background thread. Telemetry failures log a warning but never crash your app.
-
-On shutdown, `telemetry.shutdown()` flushes remaining events. This is also registered with `atexit` automatically, so it runs when your app exits.
-
-The client requires the `requests` library:
-
-```bash
-uv add requests
-```
 
 ## Downloading Your Backups
 
