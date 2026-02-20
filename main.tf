@@ -23,7 +23,7 @@ variable "region" {
   description = "GCP region for all resources"
 }
 
-variable "telemetry_secret" {
+variable "skellypings_secret" {
   type        = string
   sensitive   = true
   description = "HMAC shared secret for request signing"
@@ -125,7 +125,7 @@ resource "google_cloud_run_v2_service" "telemetry" {
 
       env {
         name  = "SKELLYPINGS_SECRET"
-        value = var.telemetry_secret
+        value = var.skellypings_secret
       }
       env {
         name  = "BACKUP_BUCKET"

@@ -488,7 +488,7 @@ Edit `terraform.tfvars`:
 ```hcl
 project_id         = "your-gcp-project-id"
 region             = "us-east1"
-telemetry_secret   = "your-64-char-secret"
+skellypings_secret   = "your-64-char-secret"
 backup_bucket_name = "your-project-id-telemetry-backups"
 ```
 
