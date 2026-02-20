@@ -124,7 +124,7 @@ resource "google_cloud_run_v2_service" "telemetry" {
       image = "gcr.io/cloudrun/placeholder"
 
       env {
-        name  = "TELEMETRY_SECRET"
+        name  = "SKELLYPINGS_SECRET"
         value = var.telemetry_secret
       }
       env {

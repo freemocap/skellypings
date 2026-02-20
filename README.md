@@ -177,7 +177,7 @@ These are used by the commands below. Set them all now:
 ```bash
 export PROJECT_ID="your-project-id"
 export REGION="us-east1"
-export TELEMETRY_SECRET="paste-your-64-char-secret-here"
+export SKELLYPINGS_SECRET="paste-your-64-char-secret-here"
 export BACKUP_BUCKET="${PROJECT_ID}-telemetry-backups"
 ```
 
@@ -230,7 +230,7 @@ gcloud run deploy telemetry \
   --region $REGION \
   --allow-unauthenticated \
   --max-instances 1 \
-  --set-env-vars "TELEMETRY_SECRET=$TELEMETRY_SECRET,BACKUP_BUCKET=$BACKUP_BUCKET"
+  --set-env-vars "SKELLYPINGS_SECRET=$SKELLYPINGS_SECRET,BACKUP_BUCKET=$BACKUP_BUCKET"
 
 cd ..
 ```
@@ -262,7 +262,7 @@ gcloud run services add-iam-policy-binding telemetry \
 # The backup endpoint expects a signature computed over the literal string "backup".
 BACKUP_SIGNATURE=$(python3 -c "
 import hmac, hashlib
-print(hmac.new('${TELEMETRY_SECRET}'.encode(), b'backup', hashlib.sha256).hexdigest())
+print(hmac.new('${SKELLYPINGS_SECRET}'.encode(), b'backup', hashlib.sha256).hexdigest())
 ")
 
 # Create the scheduled job
@@ -304,7 +304,7 @@ BODY='{"events":[{"event_type":"test","app_version":"0.0.1","os_platform":"manua
 SIG=$(python3 -c "
 import hmac, hashlib
 body = '${BODY}'.encode()
-print(hmac.new('${TELEMETRY_SECRET}'.encode(), body, hashlib.sha256).hexdigest())
+print(hmac.new('${SKELLYPINGS_SECRET}'.encode(), body, hashlib.sha256).hexdigest())
 ")
 
 curl -X POST $SERVICE_URL/events \
@@ -395,7 +395,7 @@ git add -A && git commit -m "initial commit" && git push
    - **Authentication**: select **Allow unauthenticated invocations**
 9. Expand **Container(s), Volumes, Networking, Security**
 10. Under **Container** → **Settings** → **Environment variables**, click **Add Variable** twice:
-    - Name: `TELEMETRY_SECRET`, Value: your 64-character secret
+    - Name: `SKELLYPINGS_SECRET`, Value: your 64-character secret
     - Name: `BACKUP_BUCKET`, Value: your bucket name from step B5
 11. Under **Container** → **Settings** → **Resources**:
     - Memory: `256 MiB`
