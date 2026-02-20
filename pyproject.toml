@@ -1,0 +1,12 @@
+[project]
+name = "telemetry-server"
+version = "0.1.0"
+description = "Cloud Run telemetry ingestion service"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "google-cloud-firestore>=2.19.0",
+    "google-cloud-storage>=2.18.0",
+    "pydantic>=2.9.0",
+]
