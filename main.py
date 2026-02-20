@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-SHARED_SECRET: str = os.environ["TELEMETRY_SECRET"]
+SHARED_SECRET: str = os.environ["SKELLYPINGS_SECRET"]
 FIRESTORE_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION", "telemetry_events")
 BACKUP_BUCKET: str = os.environ["BACKUP_BUCKET"]
 
