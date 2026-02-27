@@ -85,7 +85,6 @@ telemetry.track("feature_used", payload={"feature": "export_csv", "row_count": 1
 telemetry.track("error", payload={"type": "ValueError", "message": "invalid input"})
 ```
 
-
 The `user_id_file` is where the client stores a persistent anonymous user ID (a random hex string). On first run it generates one; on subsequent runs it reuses it. You decide where this file lives in your app's data directory.
 
 Events accumulate in memory and are flushed every 60 seconds or every 50 events (whichever comes first) on a background thread. Telemetry failures log a warning but never crash your app.
