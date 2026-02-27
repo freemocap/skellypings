@@ -2,6 +2,10 @@
 Cloud Run telemetry ingestion service.
 
 Accepts JSON telemetry events via POST and stores them in Firestore.
+Events with valid HMAC signatures go into the verified collection;
+events with missing or invalid signatures go into a separate unverified
+collection (for from-source / dev builds).
+
 Provides a backup endpoint that exports events to JSONL in Cloud Storage.
 
 Rate-limits requests per IP to prevent abuse from running up Cloud Run costs.
@@ -23,7 +27,8 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 SHARED_SECRET: str = os.environ["SKELLYPINGS_SECRET"]
-FIRESTORE_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION", "telemetry_events")
+VERIFIED_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION", "telemetry_events")
+UNVERIFIED_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION_UNVERIFIED", "telemetry_events_unverified")
 BACKUP_BUCKET: str = os.environ["BACKUP_BUCKET"]
 
 # Rate limit: max requests per IP within the window. These are intentionally
@@ -136,7 +141,7 @@ def _flush_flagged_to_firestore() -> None:
     if not flagged:
         return
 
-    collection = db.collection(FIRESTORE_COLLECTION)
+    collection = db.collection(VERIFIED_COLLECTION)
     fs_batch = db.batch()
     for ip, info in flagged.items():
         doc_ref = collection.document()
@@ -235,15 +240,19 @@ class TelemetryBatch(BaseModel):
 # Auth
 # ---------------------------------------------------------------------------
 
-def _verify_signature(body: bytes, signature: str) -> None:
-    """Verify HMAC-SHA256 signature of the request body."""
+def _check_signature(body: bytes, signature: str | None) -> bool:
+    """Verify HMAC-SHA256 signature of the request body.
+
+    Returns True if the signature is present and valid, False otherwise.
+    """
+    if not signature:
+        return False
     expected = hmac.new(
         key=SHARED_SECRET.encode(),
         msg=body,
         digestmod=hashlib.sha256,
     ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        raise HTTPException(status_code=401, detail="Invalid signature")
+    return hmac.compare_digest(expected, signature)
 
 
 # ---------------------------------------------------------------------------
@@ -253,73 +262,102 @@ def _verify_signature(body: bytes, signature: str) -> None:
 @app.post("/events")
 async def ingest_events(
     request: Request,
-    x_telemetry_signature: str = Header(),
-) -> dict[str, int]:
-    """Ingest a batch of telemetry events into Firestore."""
+    x_telemetry_signature: str | None = Header(default=None),
+) -> dict[str, object]:
+    """Ingest a batch of telemetry events into Firestore.
+
+    Events with a valid HMAC signature are stored in the verified collection.
+    Events with a missing or invalid signature are stored in a separate
+    unverified collection — this captures telemetry from users running
+    from source or dev builds that don't have the production secret.
+    """
     raw_body: bytes = await request.body()
-    _verify_signature(body=raw_body, signature=x_telemetry_signature)
+    is_verified: bool = _check_signature(body=raw_body, signature=x_telemetry_signature)
+    target_collection: str = VERIFIED_COLLECTION if is_verified else UNVERIFIED_COLLECTION
 
     batch_data = TelemetryBatch.model_validate_json(raw_body)
     fs_batch = db.batch()
 
-    collection = db.collection(FIRESTORE_COLLECTION)
+    collection = db.collection(target_collection)
     for event in batch_data.events:
         doc_ref = collection.document()
         fs_batch.set(doc_ref, {
             **event.model_dump(),
             "ingested_at": time.time(),
+            "verified": is_verified,
         })
 
     fs_batch.commit()
-    return {"stored": len(batch_data.events)}
+
+    if is_verified:
+        logger.info("Stored %d verified events", len(batch_data.events))
+    else:
+        logger.info("Stored %d unverified events (missing or invalid signature)", len(batch_data.events))
+
+    return {
+        "stored": len(batch_data.events),
+        "verified": is_verified,
+    }
 
 
 @app.post("/backup")
 async def run_backup(
     x_telemetry_signature: str = Header(),
-) -> dict[str, str]:
+) -> dict[str, object]:
     """
-    Export all events since the last backup to a JSONL file in Cloud Storage.
+    Export all events since the last backup to JSONL files in Cloud Storage.
 
+    Backs up both the verified and unverified collections to separate files.
     Tracks the last backup timestamp in a Firestore document at _meta/last_backup.
     """
     raw_body = b"backup"
-    _verify_signature(body=raw_body, signature=x_telemetry_signature)
+    if not _check_signature(body=raw_body, signature=x_telemetry_signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
     meta_ref = db.collection("_meta").document("last_backup")
     meta_doc = meta_ref.get()
     last_backup_ts: float = meta_doc.to_dict().get("timestamp", 0.0) if meta_doc.exists else 0.0
 
     now = time.time()
-
-    query = (
-        db.collection(FIRESTORE_COLLECTION)
-        .where("ingested_at", ">=", last_backup_ts)
-        .where("ingested_at", "<", now)
-        .order_by("ingested_at")
-    )
-
-    docs = list(query.stream())
-    if not docs:
-        return {"status": "no_new_events", "file": ""}
-
-    lines: list[str] = []
-    for doc in docs:
-        data = doc.to_dict()
-        data["_firestore_id"] = doc.id
-        lines.append(json.dumps(data, default=str))
-
-    jsonl_content = "\n".join(lines) + "\n"
     timestamp_str = time.strftime("%Y-%m-%d_%H%M%S", time.gmtime(now))
-    blob_name = f"backups/{timestamp_str}.jsonl"
 
-    bucket = gcs.bucket(BACKUP_BUCKET)
-    blob = bucket.blob(blob_name)
-    blob.upload_from_string(jsonl_content, content_type="application/jsonl")
+    results: dict[str, object] = {}
+
+    for collection_name in [VERIFIED_COLLECTION, UNVERIFIED_COLLECTION]:
+        query = (
+            db.collection(collection_name)
+            .where("ingested_at", ">=", last_backup_ts)
+            .where("ingested_at", "<", now)
+            .order_by("ingested_at")
+        )
+
+        docs = list(query.stream())
+        if not docs:
+            results[collection_name] = {"status": "no_new_events", "file": ""}
+            continue
+
+        lines: list[str] = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["_firestore_id"] = doc.id
+            lines.append(json.dumps(data, default=str))
+
+        jsonl_content = "\n".join(lines) + "\n"
+        blob_name = f"backups/{timestamp_str}_{collection_name}.jsonl"
+
+        bucket = gcs.bucket(BACKUP_BUCKET)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(jsonl_content, content_type="application/jsonl")
+
+        results[collection_name] = {
+            "status": "ok",
+            "file": blob_name,
+            "events_exported": len(docs),
+        }
 
     meta_ref.set({"timestamp": now})
 
-    return {"status": "ok", "file": blob_name, "events_exported": len(docs)}
+    return results
 
 
 @app.get("/health")
