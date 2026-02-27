@@ -31,10 +31,23 @@ steps:
       - "${_REGION}"
       - "--platform"
       - "managed"
+      - "--allow-unauthenticated"
+      - "--set-env-vars"
+      - "SKELLYPINGS_SECRET=${_SKELLYPINGS_SECRET},BACKUP_BUCKET=${_BACKUP_BUCKET},FIRESTORE_COLLECTION=telemetry_events"
+      - "--memory"
+      - "256Mi"
+      - "--cpu"
+      - "1"
+      - "--min-instances"
+      - "0"
+      - "--max-instances"
+      - "1"
 
 substitutions:
   _REGION: "northamerica-northeast1"
   _IMAGE: "gcr.io/${PROJECT_ID}/skellypings:${COMMIT_SHA}"
+  _SKELLYPINGS_SECRET: ""
+  _BACKUP_BUCKET: ""
 
 images:
   - "${_IMAGE}"
