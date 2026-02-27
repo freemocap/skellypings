@@ -1,0 +1,37 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Build"
+    args:
+      - "build"
+      - "-t"
+      - "${_IMAGE}"
+      - "-f"
+      - "server/Dockerfile"
+      - "server"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Push"
+    args:
+      - "push"
+      - "${_IMAGE}"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Deploy"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "telemetry"
+      - "--image"
+      - "${_IMAGE}"
+      - "--region"
+      - "${_REGION}"
+      - "--platform"
+      - "managed"
+
+substitutions:
+  _REGION: "northamerica-northeast1"
+  _IMAGE: "gcr.io/${PROJECT_ID}/skellypings:${COMMIT_SHA}"
+
+images:
+  - "${_IMAGE}"
