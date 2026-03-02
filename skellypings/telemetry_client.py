@@ -13,6 +13,7 @@ import atexit
 import hashlib
 import hmac
 import json
+import datetime
 import logging
 import platform
 import threading
@@ -106,12 +107,14 @@ class TelemetryClient:
         if self._disabled:
             return
 
+        now: datetime.datetime = datetime.datetime.now(tz=datetime.timezone.utc)
         event: dict[str, object] = {
             "event_type": event_type,
             "app_version": self._app_version,
             "os_platform": self._os_platform,
             "user_id": self._user_id,
-            "timestamp": time.time(),
+            "timestamp": now.timestamp(),
+            "timestamp_iso8601": now.isoformat(),
             "payload": payload or {},
         }
         with self._lock:
