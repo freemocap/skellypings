@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Telemetry client for FreeMoCap desktop apps"
 requires-python = ">=3.11"
 dependencies = [
+    "python-dotenv>=1.2.1",
     "requests>=2.31.0",
 ]
 
