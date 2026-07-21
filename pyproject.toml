@@ -14,3 +14,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["skellypings"]
+
+# Maintainer-only tools (test_ping.py round-trip check, stats.py) read Firestore directly.
+# This is a dependency GROUP, not a runtime dependency — it is NOT part of the published
+# package, so `pip install skellypings` (and consumers like freemocap) stay lightweight.
+[dependency-groups]
+admin = ["google-cloud-firestore>=2.19.0"]
+
+# Installed by plain `uv sync` so `uv run stats.py` / `uv run test_ping.py` work without flags.
+[tool.uv]
+default-groups = ["admin"]
