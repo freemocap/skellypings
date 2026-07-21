@@ -69,6 +69,7 @@ class TelemetryClient:
         self,
         server_url: str,
         secret: str,
+        app_name: str,
         app_version: str,
         user_id_file: Path,
         flush_interval_seconds: float = 60.0,
@@ -76,6 +77,7 @@ class TelemetryClient:
     ) -> None:
         self._server_url: str = server_url.rstrip("/")
         self._secret: str = secret
+        self._app_name: str = app_name
         self._app_version: str = app_version
         self._flush_interval: float = flush_interval_seconds
         self._flush_batch_size: int = flush_batch_size
@@ -110,6 +112,7 @@ class TelemetryClient:
         now: datetime.datetime = datetime.datetime.now(tz=datetime.timezone.utc)
         event: dict[str, object] = {
             "event_type": event_type,
+            "app_name": self._app_name,
             "app_version": self._app_version,
             "os_platform": self._os_platform,
             "user_id": self._user_id,

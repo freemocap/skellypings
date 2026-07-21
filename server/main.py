@@ -36,6 +36,11 @@ BACKUP_BUCKET: str = os.environ["BACKUP_BUCKET"]
 RATE_LIMIT_MAX_REQUESTS: int = int(os.environ.get("RATE_LIMIT_MAX_REQUESTS", "60"))
 RATE_LIMIT_WINDOW_SECONDS: float = float(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
+# Reject oversized requests before doing any Firestore work (cost/DoS protection). The client only
+# ever flushes up to 50 events per batch, so these limits leave generous headroom for legitimate use.
+MAX_EVENTS_PER_REQUEST: int = int(os.environ.get("MAX_EVENTS_PER_REQUEST", "100"))
+MAX_BODY_BYTES: int = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))
+
 app = FastAPI()
 db = firestore.Client()
 gcs = storage.Client()
@@ -212,6 +217,12 @@ async def rate_limit_middleware(request: Request, call_next):
             content={"detail": "Rate limit exceeded"},
         )
 
+    # Early-reject obviously oversized uploads by their declared size, before reading the body.
+    content_length = request.headers.get("content-length")
+    if content_length is not None and content_length.isdigit() and int(content_length) > MAX_BODY_BYTES:
+        logger.warning("BODY_TOO_LARGE ip=%s content_length=%s", client_ip, content_length)
+        return JSONResponse(status_code=413, content={"detail": "Request body too large"})
+
     # Periodically clean up stale entries (cheap, doesn't need to happen every request)
     if hash(client_ip) % 100 == 0:
         _rate_limiter.cleanup()
@@ -225,6 +236,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 class TelemetryEvent(BaseModel):
     event_type: str
+    app_name: str
     app_version: str
     os_platform: str
     user_id: str
@@ -272,10 +284,16 @@ async def ingest_events(
     from source or dev builds that don't have the production secret.
     """
     raw_body: bytes = await request.body()
+    if len(raw_body) > MAX_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="Request body too large")
+
     is_verified: bool = _check_signature(body=raw_body, signature=x_telemetry_signature)
     target_collection: str = VERIFIED_COLLECTION if is_verified else UNVERIFIED_COLLECTION
 
     batch_data = TelemetryBatch.model_validate_json(raw_body)
+    if len(batch_data.events) > MAX_EVENTS_PER_REQUEST:
+        raise HTTPException(status_code=413, detail="Batch too large")
+
     fs_batch = db.batch()
 
     collection = db.collection(target_collection)

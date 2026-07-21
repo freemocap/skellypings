@@ -14,6 +14,7 @@ BASE_URL: str = os.environ["SKELLYPINGS_URL"].rstrip("/")
 body: bytes = json.dumps({
     "events": [{
         "event_type": "test_ping",
+        "app_name": "test",
         "app_version": "0.0.1",
         "os_platform": "windows",
         "user_id": "dev-test",

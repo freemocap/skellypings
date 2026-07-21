@@ -124,17 +124,19 @@ Realistically: for a telemetry endpoint receiving fewer than 10,000 events per d
 
 ## Security: How Requests Are Authenticated
 
-The telemetry endpoint is publicly accessible (anyone can reach the URL), but every request must include a valid **HMAC-SHA256 signature** to be accepted. Here's how it works:
+The telemetry endpoint is publicly reachable, but authenticity is established with an **HMAC-SHA256 signature** on every request. Here's how it works:
 
 1. You generate a random secret string (a long hex string) when you set up the system
 2. The desktop app and the server both know this secret
 3. When the desktop app sends telemetry events, it computes a cryptographic hash of the request body using the secret as a key, and sends that hash in an HTTP header (`X-Telemetry-Signature`)
-4. The server independently computes the same hash. If the hashes match, the request is legitimate. If not, the server rejects it with a 401 error
+4. The server independently computes the same hash and compares. Only requests whose signature matches are treated as authentic telemetry.
 
 This means:
-- Random people who discover your Cloud Run URL cannot write garbage to your database — they'd need the secret to produce a valid signature
-- The secret never travels over the wire (only the hash does)
+- The secret never travels over the wire — only the hash does
+- Only your signed apps produce authentic telemetry; a valid signature can't be forged without the secret
 - If the secret is ever compromised, you just rotate it (change the env var on Cloud Run and in your app)
+
+The endpoint is additionally protected against abuse and runaway cost by a per-IP rate limit and request-size caps, so a flood of junk traffic is cheaply rejected before it can reach the database.
 
 The secret is stored as an environment variable on Cloud Run. It's not in your code or your repo.
 
@@ -348,7 +350,7 @@ gcloud billing budgets create \
 curl $SERVICE_URL/health
 
 # Send a test event
-BODY='{"events":[{"event_type":"test","app_version":"0.0.1","os_platform":"manual","user_id":"test","timestamp":0,"payload":{}}]}'
+BODY='{"events":[{"event_type":"test","app_name":"test","app_version":"0.0.1","os_platform":"manual","user_id":"test","timestamp":0,"payload":{}}]}'
 
 SIG=$(python3 -c "
 import hmac, hashlib
