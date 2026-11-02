@@ -15,6 +15,5 @@ README do not authorize cloud changes or sending test telemetry.
 
 Continue authorized work once purpose, ownership and validation are clear;
 ask only for consequential intent that inspection cannot resolve. Follow
-workspace policy when present; preserve user edits/data and leave Git and gCloud
-state to the human. Use isolated tests with mocked network effects unless live
+workspace policy when present; preserve user edits/data and follow the workspace Git authorization and repository-scope policy; gCloud changes still require separate authorization. Use isolated tests with mocked network effects unless live
 traffic is explicitly authorized, and use ignored or external temporary outputs.
