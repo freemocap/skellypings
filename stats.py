@@ -2,24 +2,38 @@
 Quick telemetry stats straight from Firestore — an ad-hoc maintainer view
 (not the automated public-stats pipeline).
 
-Run:  uv sync  &&  uv run stats.py
+Run: uv run stats.py
 
-Requires GCP application-default credentials for the telemetry project:
-    gcloud config set project freemocap-user-pings
-    gcloud auth application-default login
+Uses application-default credentials or the active gcloud login.
 
 Note: this streams every event into memory — fine for now, not built for millions of rows.
 """
 import os
+import shutil
+import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 
 from google.cloud import firestore
+from google.auth.exceptions import DefaultCredentialsError
+from google.oauth2.credentials import Credentials
 
 VERIFIED_COLLECTION = os.environ.get("FIRESTORE_COLLECTION", "telemetry_events")
 UNVERIFIED_COLLECTION = os.environ.get("FIRESTORE_COLLECTION_UNVERIFIED", "telemetry_events_unverified")
 
-db = firestore.Client()
+try:
+    db = firestore.Client()
+except DefaultCredentialsError:
+    gcloud = shutil.which("gcloud")
+    if not gcloud:
+        raise SystemExit("Sign in with Google Cloud to read the telemetry report.")
+    result = subprocess.run([gcloud, "auth", "print-access-token"], stdout=subprocess.PIPE, text=True)
+    if result.returncode or not result.stdout.strip():
+        raise SystemExit("Run gcloud auth login, then retry uv run stats.py.")
+    db = firestore.Client(
+        project=os.environ.get("GOOGLE_CLOUD_PROJECT") or "freemocap-user-pings",
+        credentials=Credentials(token=result.stdout.strip()),
+    )
 
 
 def _load(collection: str) -> list[dict]:
