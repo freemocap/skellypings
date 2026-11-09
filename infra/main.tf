@@ -34,6 +34,13 @@ variable "backup_bucket_name" {
   description = "Globally unique name for the Cloud Storage backup bucket"
 }
 
+variable "skellypings_secret_2" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Optional second HMAC key accepted for telemetry events"
+}
+
 # ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
@@ -126,6 +133,10 @@ resource "google_cloud_run_v2_service" "telemetry" {
       env {
         name  = "SKELLYPINGS_SECRET"
         value = var.skellypings_secret
+      }
+      env {
+        name  = "SKELLYPINGS_SECRET_2"
+        value = var.skellypings_secret_2
       }
       env {
         name  = "BACKUP_BUCKET"

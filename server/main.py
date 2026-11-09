@@ -27,6 +27,9 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 SHARED_SECRET: str = os.environ["SKELLYPINGS_SECRET"]
+TELEMETRY_SECRETS = tuple(
+    key for key in (SHARED_SECRET, os.getenv("SKELLYPINGS_SECRET_2")) if key
+)
 VERIFIED_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION", "telemetry_events")
 UNVERIFIED_COLLECTION: str = os.environ.get("FIRESTORE_COLLECTION_UNVERIFIED", "telemetry_events_unverified")
 BACKUP_BUCKET: str = os.environ["BACKUP_BUCKET"]
@@ -252,15 +255,15 @@ class TelemetryBatch(BaseModel):
 # Auth
 # ---------------------------------------------------------------------------
 
-def _check_signature(body: bytes, signature: str | None) -> bool:
+def _check_signature(body: bytes, signature: str | None, secret: str) -> bool:
     """Verify HMAC-SHA256 signature of the request body.
 
     Returns True if the signature is present and valid, False otherwise.
     """
-    if not signature:
+    if not secret or not signature or not signature.isascii():
         return False
     expected = hmac.new(
-        key=SHARED_SECRET.encode(),
+        key=secret.encode(),
         msg=body,
         digestmod=hashlib.sha256,
     ).hexdigest()
@@ -287,7 +290,10 @@ async def ingest_events(
     if len(raw_body) > MAX_BODY_BYTES:
         raise HTTPException(status_code=413, detail="Request body too large")
 
-    is_verified: bool = _check_signature(body=raw_body, signature=x_telemetry_signature)
+    is_verified = any(
+        _check_signature(raw_body, x_telemetry_signature, secret)
+        for secret in TELEMETRY_SECRETS
+    )
     target_collection: str = VERIFIED_COLLECTION if is_verified else UNVERIFIED_COLLECTION
 
     batch_data = TelemetryBatch.model_validate_json(raw_body)
@@ -329,7 +335,7 @@ async def run_backup(
     Tracks the last backup timestamp in a Firestore document at _meta/last_backup.
     """
     raw_body = b"backup"
-    if not _check_signature(body=raw_body, signature=x_telemetry_signature):
+    if not _check_signature(raw_body, x_telemetry_signature, SHARED_SECRET):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     meta_ref = db.collection("_meta").document("last_backup")

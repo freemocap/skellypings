@@ -32,7 +32,7 @@ steps:
       - "--platform"
       - "managed"
       - "--allow-unauthenticated"
-      - "--set-env-vars"
+      - "--update-env-vars"
       - "SKELLYPINGS_SECRET=${_SKELLYPINGS_SECRET},BACKUP_BUCKET=${_BACKUP_BUCKET},FIRESTORE_COLLECTION=telemetry_events"
       - "--memory"
       - "256Mi"

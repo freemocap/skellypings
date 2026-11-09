@@ -134,7 +134,7 @@ The telemetry endpoint is publicly reachable, but authenticity is established wi
 This means:
 - The secret never travels over the wire — only the hash does
 - Only your signed apps produce authentic telemetry; a valid signature can't be forged without the secret
-- If the secret is ever compromised, you just rotate it (change the env var on Cloud Run and in your app)
+- To keep verifying telemetry from existing installers, keep their key in Cloud Run's `SKELLYPINGS_SECRET` and add the new installer key as `SKELLYPINGS_SECRET_2` (Terraform variable `skellypings_secret_2`). Set the installer workflow's GitHub Actions secret `SKELLYPINGS_SECRET` to that new value. Both keys verify events into the same collection. The backup endpoint uses the original `SKELLYPINGS_SECRET`.
 
 The endpoint is additionally protected against abuse and runaway cost by a per-IP rate limit and request-size caps, so a flood of junk traffic is cheaply rejected before it can reach the database.
 
